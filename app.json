@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "WAD Judging",
+    
+    "slug": "wad-judging",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/logobgr.png",
+    "scheme": "studentevaluationapp",
+    "userInterfaceStyle": "automatic",
+    "jsEngine": "jsc",
+    "newArchEnabled": false,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/logobgr.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.malkigunawardana.studentevaluationapp"
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/images/favicon.png",
+      "splash": {
+        "image": "./assets/images/logobgr.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#1B263B"
+      }
+    },
+    "splash": {
+      "image": "./assets/images/logobgr.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#f5faff"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "1b34095b-764b-40ed-9d7b-0e2761d10750"
+      }
+    },
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ]
+  }
+}
