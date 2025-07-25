@@ -1,16 +1,18 @@
 {
-  "extends": "./node_modules/expo/tsconfig.base",
+  "extends": "expo/tsconfig.base",
   "compilerOptions": {
+    // These settings are often in the base config, but we'll be explicit
+    // to ensure they are set correctly and resolve the errors you saw.
+    "jsx": "react-native", // Tells TypeScript how to handle JSX for React Native.
+    "esModuleInterop": true, // Allows default imports from modules with no default export.
+
+    // Your existing settings are great.
     "strict": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["./*"]
     }
-  },
-  "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    ".expo/tsconfig.json"
-  ],
-  "exclude": ["node_modules"]
+  }
+  // We can remove "include" and "exclude" because they are
+  // already well-configured in the "expo/tsconfig.base" file we are extending.
 }

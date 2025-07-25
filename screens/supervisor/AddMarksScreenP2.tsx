@@ -1,8 +1,8 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { Picker } from "@react-native-picker/picker";
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Keyboard, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
-import { Button, IconButton, Text, TextInput } from "react-native-paper";
+import { ActivityIndicator, FlatList, Image, Keyboard, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native"; // Added Modal back
+import { Button, IconButton, Text, TextInput } from "react-native-paper"; // Added Modal back
 import { FeedbackModal, ModalType as FeedbackModalType } from "../../components/FeedbackModal"; // Import FeedbackModal
 import SupervisorBottomNavBarP2 from "../../components/SupervisorBottomNavBarP2"; // Added SupervisorBottomNavBarP2
 import SupervisorWebSidebar from "../../components/supervisor/SupervisorWebSideBar";
@@ -23,8 +23,6 @@ import {
   updateEditRequestStatus,
   updateStudentMarks,
 } from "../../utils/firebaseRest";
-
-// Remove direct Firestore notification logic; use REST API notification instead
 
 // Score calculation logic specifically for Performance 1 qualification (mirrors Performance1ResultsScreen.tsx)
 const calculateP1RoundScoreForQualification = (marks: MarksEntryData): number => {
@@ -72,21 +70,124 @@ const getP1FinalScoreForQualification = (roundsData: StudentMarksPayload["rounds
   }
   return round1Score;
 };
-const initialMarksState = { 
+const initialMarksState: MarksEntryData = { 
   D: "", D_sup: "",
   E1: "", E1_sup: "",
   E2: "", E2_sup: "",
   E3: "", E3_sup: "",
   E4: "", E4_sup: "",
   P: "", P_sup: "" 
-} as MarksEntryData; // Cast to allow extra fields. Ensure backend/firebaseRest can handle them.
+};
 
 // Interface for the combined data we'll display for each top student
 interface TopStudentDisplayData {
   id: string; // Unique key for FlatList, e.g., studentId + qualifyingEventId
   student: StudentDocument;
-  qualifyingEvent: EventDocument; // The event for which they were "Top 8"
+  qualifyingEvents: EventDocument[]; // The events for which they were in the "Top 8"
 }
+
+// Props for our new, stable modal component
+interface P2MarksModalProps {
+  visible: boolean;
+  onClose: () => void;
+  student: StudentDocument | null;
+  events: EventDocument[];
+  selectedEvent: string | null;
+  onEventChange: (value: string | null) => void;
+  marks: StudentMarksPayload["rounds"];
+  onMarksChange: (round: "round1" | "round2", field: keyof MarksEntryData, value: string) => void;
+  showR2: boolean;
+  onShowR2Toggle: () => void;
+  onSave: () => void;
+  isSaving: boolean;
+  isWeb: boolean;
+  existingMarkId: string | null;
+  isLoadingMarks: boolean;
+}
+
+// This is the new, stable modal component. It is defined outside the main screen component
+// to prevent it from being re-created on every state change.
+const P2MarksModalComponent: React.FC<P2MarksModalProps> = React.memo(({
+  visible, onClose, student, events, selectedEvent, onEventChange,
+  marks, onMarksChange, showR2, onShowR2Toggle, onSave, isSaving,
+  isWeb, existingMarkId, isLoadingMarks
+}) => {
+
+  // This function renders a single row for a mark (e.g., D, E1)
+  const renderMarksField = (
+    round: 'round1' | 'round2',
+    field: keyof MarksEntryData,
+    label: string,
+    disabled?: boolean
+  ) => {
+    const value = (marks[round]?.[field] ?? "") as string;
+    const supField = `${field}_sup` as keyof MarksEntryData;
+    const supValue = (marks[round]?.[supField] ?? "") as string;
+    return (
+      <View style={styles.markRow}>
+        <Text style={styles.markLabel}>{label}</Text>
+        <TextInput label="Score" value={value} onChangeText={(text) => onMarksChange(round, field, text)} keyboardType="numeric" style={styles.markInputField} mode="outlined" dense disabled={disabled || isSaving} />
+        <TextInput label="Supervisor" value={supValue} onChangeText={(text) => onMarksChange(round, supField, text)} style={styles.supervisorInputField} mode="outlined" dense disabled={disabled || isSaving} />
+      </View>
+    );
+  };
+
+  const modalContent = (
+    <ScrollView keyboardShouldPersistTaps="handled">
+      {student && <Text style={styles.modalTitle}>P2 Marks: {student.fullName}</Text>}
+      <View style={styles.pickerWrapperModal}>
+        <Picker selectedValue={selectedEvent} onValueChange={onEventChange} style={styles.pickerModal} enabled={!isSaving}>
+          <Picker.Item label="Select Event for P2 Marks..." value={null} />
+          {events.map(event => (<Picker.Item key={event.id} label={`${event.eventName} (${event.gender})`} value={event.id} />))}
+        </Picker>
+      </View>
+      {isLoadingMarks && selectedEvent ? (
+        <ActivityIndicator size="large" color="#1565c0" style={{marginVertical: 20}}/>
+      ) : (
+        <>
+          <Text style={styles.roundTitleModal}>Round 1</Text>
+          {renderMarksField('round1', 'D', 'D', !selectedEvent)}
+          {renderMarksField('round1', 'E1', 'E1', !selectedEvent)}
+          {renderMarksField('round1', 'E2', 'E2', !selectedEvent)}
+          {renderMarksField('round1', 'E3', 'E3', !selectedEvent)}
+          {renderMarksField('round1', 'E4', 'E4', !selectedEvent)}
+          {renderMarksField('round1', 'P', 'P', !selectedEvent)}
+          <TouchableOpacity style={[styles.addRoundButtonModal, !selectedEvent && styles.disabledButtonOverlay]} onPress={onShowR2Toggle} disabled={!selectedEvent || isSaving}>
+            <MaterialIcons name={showR2 ? "remove-circle-outline" : "add-circle-outline"} size={24} color="#1565c0" />
+            <Text style={styles.addRoundTextModal}>{showR2 ? "Remove Round 2" : "Add Round 2"}</Text>
+          </TouchableOpacity>
+          {showR2 && (
+            <>
+            <Text style={styles.roundTitleModal}>Round 2</Text>
+              {renderMarksField('round2', 'D', 'D', !selectedEvent)}
+              {renderMarksField('round2', 'E1', 'E1', !selectedEvent)}
+              {renderMarksField('round2', 'E2', 'E2', !selectedEvent)}
+              {renderMarksField('round2', 'E3', 'E3', !selectedEvent)}
+              {renderMarksField('round2', 'E4', 'E4', !selectedEvent)}
+              {renderMarksField('round2', 'P', 'P', !selectedEvent)}
+            </>
+          )}
+          <View style={styles.modalActions}>
+            <Button mode="outlined" onPress={onClose} style={{marginRight: 10}} disabled={isSaving || isLoadingMarks}>Cancel</Button>
+            <Button mode="contained" onPress={onSave} loading={isSaving} disabled={isSaving || isLoadingMarks || !selectedEvent} buttonColor="#1565c0">
+              {existingMarkId ? "Update Marks" : "Save Marks"}
+            </Button>
+          </View>
+          {!selectedEvent && (<Text style={{textAlign: 'center', marginTop: 15, color: '#777'}}>Please select an event to enter marks.</Text>)}
+        </>
+      )}
+    </ScrollView>
+  );
+
+  if (isWeb) {
+    if (!visible) return null; // Don't render anything if not visible
+    return <View style={[styles.modalOverlay, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 }]}><View style={[styles.modalContent, { maxHeight: '90%', width: '90%', maxWidth: 600 }]}>{modalContent}</View></View>;
+  }
+
+  return ( // For mobile
+    <Modal visible={visible} onRequestClose={onClose} transparent animationType="slide"><View style={styles.modalOverlay}><View style={[styles.modalContent, { flexGrow: 1 }]}>{modalContent}</View></View></Modal>
+  );
+});
 
 export default function AddMarksScreenP2({ navigation }: any) {
   const { auth } = useAuth();
@@ -95,21 +196,23 @@ export default function AddMarksScreenP2({ navigation }: any) {
   const supervisorName = (auth?.firstName && auth?.lastName) ? `${String(auth.firstName).trim()} ${String(auth.lastName).trim()}` : "Supervisor"; // Ensure names are strings and trimmed
   const isWeb = Platform.OS === 'web';
 
+  // State for data
   const [allTopStudentsData, setAllTopStudentsData] = useState<TopStudentDisplayData[]>([]);
   const [filteredTopStudents, setFilteredTopStudents] = useState<TopStudentDisplayData[]>([]);
-  const [searchTerm, setSearchTerm] = useState("");
-
   const [allEventsForModalPicker, setAllEventsForModalPicker] = useState<EventDocument[]>([]);
+  
+  // State for UI
+  const [searchTerm, setSearchTerm] = useState("");
 
   // Loading states
   const [loadingEventsForPicker, setLoadingEventsForPicker] = useState(true); // For initial event list for modal
   const [loadingQualifiedStudents, setLoadingQualifiedStudents] = useState(false); // For the Top 8 student list
-  const [loadingStudentMarks, setLoadingStudentMarks] = useState(false); // For modal operations
+  const [savingOrLoadingMarks, setSavingOrLoadingMarks] = useState(false); // Consolidated modal loading state
 
   // Modal states
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedStudentForModal, setSelectedStudentForModal] = useState<StudentDocument | null>(null);
-  const [selectedEventForP2Marks, setSelectedEventForP2Marks] = useState<string | null>(null); // Event ID for P2 marks (selected in modal)
+  const [selectedEventForP2Marks, setSelectedEventForP2Marks] = useState<string | null>(null);
   const [currentMarks, setCurrentMarks] = useState<StudentMarksPayload["rounds"]>({ round1: { ...initialMarksState } });
   const [existingMarkId, setExistingMarkId] = useState<string | null>(null);
   const [showRound2InModal, setShowRound2InModal] = useState(false);
@@ -139,13 +242,13 @@ export default function AddMarksScreenP2({ navigation }: any) {
     const loadInitialEvents = async () => {
       if (!idToken) {
         displayModal("Authentication token is missing. Please log in again.", "error", "Auth Error", { autoClose: false });
-        setLoadingEventsForPicker(false);
+        setLoadingEventsForPicker(false); // Ensure loader stops
         return;
       }
       setLoadingEventsForPicker(true);
       try {
         const allStudentsList = await fetchStudents(idToken);
-        if (allStudentsList.length === 0) { // This check is done early, but might be redundant if fetchStudents throws on empty
+        if (allStudentsList.length === 0) {
           displayModal("No students found in the system. Cannot determine Top 8.", "info", "No Data", { autoClose: false }); // Keep this notification
           setLoadingEventsForPicker(false); // Corrected: Use setLoadingEventsForPicker
           return;
@@ -220,14 +323,29 @@ export default function AddMarksScreenP2({ navigation }: any) {
         }
 
         // Sort by score descending and take top 8
-        const top8Candidates = studentPerformanceScores
+        const top8Performances = studentPerformanceScores
           .sort((a, b) => b.score - a.score)
           .slice(0, 8);
 
-        const finalTopStudentsData: TopStudentDisplayData[] = top8Candidates.map(item => ({
-          id: `${item.student.id}_${item.qualifyingEvent.id}`, // Unique key for FlatList
+        // Group these top 8 performances by student
+        const groupedByStudent = new Map<string, { student: StudentDocument, qualifyingEvents: EventDocument[] }>();
+
+        for (const performance of top8Performances) {
+          const studentId = performance.student.id;
+          if (groupedByStudent.has(studentId)) {
+            groupedByStudent.get(studentId)!.qualifyingEvents.push(performance.qualifyingEvent);
+          } else {
+            groupedByStudent.set(studentId, {
+              student: performance.student,
+              qualifyingEvents: [performance.qualifyingEvent],
+            });
+          }
+        }
+
+        const finalTopStudentsData: TopStudentDisplayData[] = Array.from(groupedByStudent.values()).map(item => ({
+          id: item.student.id, // student id is now the unique key
           student: item.student,
-          qualifyingEvent: item.qualifyingEvent,
+          qualifyingEvents: item.qualifyingEvents,
         }));
 
         setAllTopStudentsData(finalTopStudentsData);
@@ -260,85 +378,6 @@ export default function AddMarksScreenP2({ navigation }: any) {
     // This function is primarily to trigger UI changes like dismissing the keyboard
   };
 
-  const MarksModal = () => (
-    <Modal visible={isModalVisible} onRequestClose={() => setIsModalVisible(false)} transparent animationType="slide">
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <ScrollView>
-            {selectedStudentForModal && <Text style={styles.modalTitle}>P2 Marks: {selectedStudentForModal.fullName}</Text>}
-
-            {/* Event Picker inside the Modal */}
-            <View style={styles.pickerWrapperModal}>
-              <Picker
-                selectedValue={selectedEventForP2Marks}
-                onValueChange={(itemValue) => setSelectedEventForP2Marks(itemValue as string | null)}
-                style={styles.pickerModal}
-                enabled={!loadingStudentMarks} // Disable while saving/loading marks
-              >
-                <Picker.Item label="Select Event for P2 Marks..." value={null} />
-                {allEventsForModalPicker.map(event => (
-                  // Batch display removed from event label
-                  <Picker.Item key={event.id} label={`${event.eventName} (${event.gender})`} value={event.id} />
-                ))}
-              </Picker>
-            </View>
-
-            {/* Marks input fields section */}
-            {loadingStudentMarks && selectedEventForP2Marks ? (
-              <ActivityIndicator size="large" color="#1565c0" style={{marginVertical: 20}}/>
-            ) : (
-              <>
-                <Text style={styles.roundTitleModal}>Round 1</Text>
-                {renderMarksFieldInModal('round1', 'D', 'D', !selectedEventForP2Marks)}
-                {renderMarksFieldInModal('round1', 'E1', 'E1', !selectedEventForP2Marks)}
-                {renderMarksFieldInModal('round1', 'E2', 'E2', !selectedEventForP2Marks)}
-                {renderMarksFieldInModal('round1', 'E3', 'E3', !selectedEventForP2Marks)}
-                {renderMarksFieldInModal('round1', 'E4', 'E4', !selectedEventForP2Marks)}
-                {renderMarksFieldInModal('round1', 'P', 'P', !selectedEventForP2Marks)}
-
-                <TouchableOpacity 
-                  style={[styles.addRoundButtonModal, !selectedEventForP2Marks && styles.disabledButtonOverlay]} 
-                  onPress={() => setShowRound2InModal(!showRound2InModal)}
-                  disabled={!selectedEventForP2Marks || loadingStudentMarks}
-                >
-                  <MaterialIcons name={showRound2InModal ? "remove-circle-outline" : "add-circle-outline"} size={24} color="#1565c0" />
-                  <Text style={styles.addRoundTextModal}>{showRound2InModal ? "Remove Round 2" : "Add Round 2"}</Text>
-                </TouchableOpacity>
-
-                {showRound2InModal && selectedEventForP2Marks && ( // Also check selectedEventForP2Marks here for visibility
-                  <>
-                    <Text style={styles.roundTitleModal}>Round 2</Text>
-                    {renderMarksFieldInModal('round2', 'D', 'D', !selectedEventForP2Marks)}
-                    {renderMarksFieldInModal('round2', 'E1', 'E1', !selectedEventForP2Marks)}
-                    {renderMarksFieldInModal('round2', 'E2', 'E2', !selectedEventForP2Marks)}
-                    {renderMarksFieldInModal('round2', 'E3', 'E3', !selectedEventForP2Marks)}
-                    {renderMarksFieldInModal('round2', 'E4', 'E4', !selectedEventForP2Marks)}
-                    {renderMarksFieldInModal('round2', 'P', 'P', !selectedEventForP2Marks)}
-                  </>
-                )}
-                <View style={styles.modalActions}>
-                  <Button mode="outlined" onPress={() => setIsModalVisible(false)} style={{marginRight: 10}}>Cancel</Button>
-                  <Button
-                      mode="contained" // This button's disabled state is already handled
-                      onPress={handleSaveMarks}
-                      loading={loadingStudentMarks && !!selectedEventForP2Marks} // Show spinner on button when saving
-                      disabled={loadingStudentMarks || !selectedEventForP2Marks} // Disable if loading or no event selected
-                      buttonColor="#1565c0"
-                  >
-                    {existingMarkId ? "Update Marks" : "Save Marks"}
-                  </Button>
-                </View>
-                {!selectedEventForP2Marks && (
-                  <Text style={{textAlign: 'center', marginTop: 15, color: '#777'}}>Please select an event to enter marks.</Text>
-                )}
-              </>
-            )}
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-
   // Search/Filter Logic
   useEffect(() => {
     if (!searchTerm.trim()) {
@@ -349,7 +388,7 @@ export default function AddMarksScreenP2({ navigation }: any) {
     const filtered = allTopStudentsData.filter(item =>
       item.student.fullName.toLowerCase().includes(lowerSearchTerm) ||
       item.student.indexNo.toLowerCase().includes(lowerSearchTerm) ||
-      item.qualifyingEvent.eventName.toLowerCase().includes(lowerSearchTerm) // Search by qualifying event name
+      item.qualifyingEvents?.some(event => event.eventName.toLowerCase().includes(lowerSearchTerm)) // Search through all qualifying events
     );
     setFilteredTopStudents(filtered);
   }, [searchTerm, allTopStudentsData]);
@@ -368,8 +407,8 @@ export default function AddMarksScreenP2({ navigation }: any) {
   // Effect to load marks when an event is selected IN THE MODAL
   useEffect(() => {
     const loadMarksAndCheckPermissionsP2 = async () => {
-      if (isModalVisible && selectedStudentForModal && selectedEventForP2Marks && idToken) {
-        setLoadingStudentMarks(true); // Show loader inside modal for this operation
+      if (isModalVisible && selectedStudentForModal && selectedEventForP2Marks) {
+        setSavingOrLoadingMarks(true); // Show loader inside modal for this operation
         try {
           const marks = await fetchStudentMarksForEvent(selectedStudentForModal.id, selectedEventForP2Marks, idToken);
           
@@ -423,7 +462,7 @@ export default function AddMarksScreenP2({ navigation }: any) {
           displayModal("Error checking for existing marks: " + e.message, "error", "Error", { autoClose: false });
           setIsModalVisible(false);
         } finally {
-          setLoadingStudentMarks(false);
+          setSavingOrLoadingMarks(false);
         }
       }
     };
@@ -431,14 +470,14 @@ export default function AddMarksScreenP2({ navigation }: any) {
   }, [isModalVisible, selectedStudentForModal, selectedEventForP2Marks, idToken, displayModal]); // Rerun when modal event changes
 
 
-  const handleMarkChange = (round: "round1" | "round2", field: keyof MarksEntryData, value: string) => {
+  const handleMarkChange = useCallback((round: "round1" | "round2", field: keyof MarksEntryData, value: string) => {
     setCurrentMarks(prev => ({
       ...prev,
       [round]: { ...prev[round], [field]: value },
     }));
-  };
+  }, []);
 
-  const handleSaveMarks = async () => {
+  const handleSaveMarks = useCallback(async () => {
     if (!selectedStudentForModal || !selectedEventForP2Marks) {
       displayModal("Please select an event in the modal to save marks.", "error", "Selection Error");
       return;
@@ -555,7 +594,7 @@ export default function AddMarksScreenP2({ navigation }: any) {
     };
 
     try {
-      setLoadingStudentMarks(true);
+      setSavingOrLoadingMarks(true);
       if (existingMarkId) {
         await updateStudentMarks(existingMarkId, payload, idToken);
         const editRequest = await fetchEditRequestForMark(existingMarkId, idToken);
@@ -573,44 +612,18 @@ export default function AddMarksScreenP2({ navigation }: any) {
     } catch (e: any) {
       displayModal("Error saving marks: " + e.message, "error", "Save Error", { autoClose: false });
     } finally {
-      setLoadingStudentMarks(false);
+      setSavingOrLoadingMarks(false);
     }
-  };
-
-  const renderMarksFieldInModal = (
-    round: 'round1' | 'round2',
-    field: keyof MarksEntryData,
-    label: string,
-    disabled?: boolean // Added disabled prop
-  ) => {
-    const value = (currentMarks[round]?.[field] ?? "") as string;
-    const supField = `${field}_sup` as keyof MarksEntryData;
-    const supValue = (currentMarks[round]?.[supField] ?? "") as string;
-    return (
-      <View style={styles.markRow}>
-        <Text style={styles.markLabel}>{label}</Text>
-        <TextInput
-          label="Score"
-          value={value}
-          onChangeText={(text) => handleMarkChange(round, field, text)}
-          keyboardType="numeric"
-          style={styles.markInputField}
-          mode="outlined" dense
-          disabled={disabled || loadingStudentMarks} // Apply disabled state
-        />
-        <TextInput
-          label="Supervisor"
-          value={supValue}
-          onChangeText={(text) => handleMarkChange(round, supField, text)}
-          style={styles.supervisorInputField}
-          mode="outlined" dense
-          disabled={disabled || loadingStudentMarks} // Apply disabled state
-        />
-      </View>
-    );
-  };
+  }, [selectedStudentForModal, selectedEventForP2Marks, idToken, supervisorId, currentMarks, showRound2InModal, existingMarkId, displayModal, allEventsForModalPicker]);
 
 
+  const handleCloseModal = useCallback(() => {
+    setIsModalVisible(false);
+  }, []);
+
+  const handleToggleRound2 = useCallback(() => {
+    setShowRound2InModal(prev => !prev);
+  }, []);
 
   // --- UI Components ---
   const TopBarContent = () => (
@@ -630,7 +643,6 @@ export default function AddMarksScreenP2({ navigation }: any) {
     </View>
   ));
 
-  // Conditional rendering for the main screen content
   // --- WEB LAYOUT ---
   if (isWeb) {
     return (
@@ -671,7 +683,6 @@ export default function AddMarksScreenP2({ navigation }: any) {
                 <MaterialIcons name="search" size={28} color="#1565c0" />
               </TouchableOpacity>
             </View>
-  
 
             {loadingQualifiedStudents ? (
               <ActivityIndicator size="large" color="#1565c0" style={{ marginTop: 20 }} />
@@ -687,7 +698,9 @@ export default function AddMarksScreenP2({ navigation }: any) {
                         {"\n"}
                         <Text>{item.student.fullName}</Text>
                       </Text>
-                      <Text style={styles.studentDetail}>Top 8 for: {item.qualifyingEvent.eventName}</Text>
+                      <Text style={styles.studentDetail}>
+                        Top 8 for: {item.qualifyingEvents?.map(e => e.eventName).join(', ') || 'N/A'}
+                      </Text>
                     </View>
                     <View style={styles.studentActions}>
                       <Button
@@ -720,83 +733,24 @@ export default function AddMarksScreenP2({ navigation }: any) {
             )}
           </View>
         </View>
-        {/* Modal and FeedbackModal are rendered globally for both web and mobile */}
-        <Modal visible={isModalVisible} onRequestClose={() => setIsModalVisible(false)} transparent animationType="slide">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <ScrollView>
-                {selectedStudentForModal && <Text style={styles.modalTitle}>P2 Marks: {selectedStudentForModal.fullName}</Text>}
-                <View style={styles.pickerWrapperModal}>
-                  <Picker
-                    selectedValue={selectedEventForP2Marks}
-                    onValueChange={(itemValue) => setSelectedEventForP2Marks(itemValue as string | null)}
-                    style={styles.pickerModal}
-                    enabled={!loadingStudentMarks}
-                  >
-                    <Picker.Item label="Select Event for P2 Marks..." value={null} />
-                    {allEventsForModalPicker.map(event => (
-                      <Picker.Item key={event.id} label={`${event.eventName} (${event.gender})`} value={event.id} />
-                    ))}
-                  </Picker>
-                </View>
-                {loadingStudentMarks && selectedEventForP2Marks ? (
-                  <ActivityIndicator size="large" color="#1565c0" style={{ marginVertical: 20 }} />
-                ) : (
-                  <>
-                    <Text style={styles.roundTitleModal}>Round 1</Text>
-                    {renderMarksFieldInModal('round1', 'D', 'D', !selectedEventForP2Marks)}
-                    {renderMarksFieldInModal('round1', 'E1', 'E1', !selectedEventForP2Marks)}
-                    {renderMarksFieldInModal('round1', 'E2', 'E2', !selectedEventForP2Marks)}
-                    {renderMarksFieldInModal('round1', 'E3', 'E3', !selectedEventForP2Marks)}
-                    {renderMarksFieldInModal('round1', 'E4', 'E4', !selectedEventForP2Marks)}
-                    {renderMarksFieldInModal('round1', 'P', 'P', !selectedEventForP2Marks)}
-                    <TouchableOpacity
-                      style={[styles.addRoundButtonModal, !selectedEventForP2Marks && styles.disabledButtonOverlay]}
-                      onPress={() => setShowRound2InModal(!showRound2InModal)}
-                      disabled={!selectedEventForP2Marks || loadingStudentMarks}
-                    >
-                      <MaterialIcons name={showRound2InModal ? "remove-circle-outline" : "add-circle-outline"} size={24} color="#1565c0" />
-                      <Text style={styles.addRoundTextModal}>{showRound2InModal ? "Remove Round 2" : "Add Round 2"}</Text>
-                    </TouchableOpacity>
-                    {showRound2InModal && selectedEventForP2Marks && (
-                      <>
-                        <Text style={styles.roundTitleModal}>Round 2</Text>
-                        {renderMarksFieldInModal('round2', 'D', 'D', !selectedEventForP2Marks)}
-                        {renderMarksFieldInModal('round2', 'E1', 'E1', !selectedEventForP2Marks)}
-                        {renderMarksFieldInModal('round2', 'E2', 'E2', !selectedEventForP2Marks)}
-                        {renderMarksFieldInModal('round2', 'E3', 'E3', !selectedEventForP2Marks)}
-                        {renderMarksFieldInModal('round2', 'E4', 'E4', !selectedEventForP2Marks)}
-                        {renderMarksFieldInModal('round2', 'P', 'P', !selectedEventForP2Marks)}
-                      </>
-                    )}
-                    <View style={styles.modalActions}>
-                      <Button mode="outlined" onPress={() => setIsModalVisible(false)} style={{ marginRight: 10 }}>Cancel</Button>
-                      <Button
-                        mode="contained"
-                        onPress={handleSaveMarks}
-                        loading={loadingStudentMarks && !!selectedEventForP2Marks}
-                        disabled={loadingStudentMarks || !selectedEventForP2Marks}
-                        buttonColor="#1565c0"
-                      >
-                        {existingMarkId ? "Update Marks" : "Save Marks"}
-                      </Button>
-                    </View>
-                    {!selectedEventForP2Marks && (
-                      <Text style={{ textAlign: 'center', marginTop: 15, color: '#777' }}>Please select an event to enter marks.</Text>
-                    )}
-                  </>
-                )}
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-        <FeedbackModal
-          visible={feedbackModalVisible}
-          message={feedbackModalMsg}
-          type={feedbackModalType as FeedbackModalType}
-          title={feedbackModalTitle}
-          onClose={hideFeedbackModal}
+        <P2MarksModalComponent
+          visible={isModalVisible}
+          onClose={handleCloseModal}
+          student={selectedStudentForModal}
+          events={allEventsForModalPicker}
+          selectedEvent={selectedEventForP2Marks}
+          onEventChange={setSelectedEventForP2Marks}
+          marks={currentMarks}
+          onMarksChange={handleMarkChange}
+          showR2={showRound2InModal}
+          onShowR2Toggle={handleToggleRound2}
+          onSave={handleSaveMarks}
+          isSaving={savingOrLoadingMarks}
+          isWeb={isWeb}
+          existingMarkId={existingMarkId}
+          isLoadingMarks={savingOrLoadingMarks}
         />
+        <FeedbackModal visible={feedbackModalVisible} message={feedbackModalMsg} type={feedbackModalType as FeedbackModalType} title={feedbackModalTitle} onClose={hideFeedbackModal} />
       </View>
     );
   }
@@ -814,7 +768,6 @@ export default function AddMarksScreenP2({ navigation }: any) {
     <SafeAreaView style={styles.safeArea}>
       <TopShape />
       <View style={styles.mainContainer}>
-        {/* ...existing code... */}
         <View style={styles.searchCard}>
           <View style={styles.searchRow}>
             <View style={styles.searchInputWrapper}> 
@@ -858,7 +811,9 @@ export default function AddMarksScreenP2({ navigation }: any) {
                       {"\n"}
                       <Text>{item.student.fullName}</Text>
                     </Text>
-                    <Text style={styles.studentDetail}>Top 8 for: {item.qualifyingEvent.eventName}</Text>
+                    <Text style={styles.studentDetail}>
+                      Top 8 for: {item.qualifyingEvents?.map(e => e.eventName).join(', ') || 'N/A'}
+                    </Text>
                 </View>
                 <View style={styles.studentActions}>
                   <Button
@@ -892,83 +847,24 @@ export default function AddMarksScreenP2({ navigation }: any) {
         )}
       </View>
 
-      {/* Modal for Adding/Editing P2 Marks */}
-      <Modal visible={isModalVisible} onRequestClose={() => setIsModalVisible(false)} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <ScrollView>
-              {selectedStudentForModal && <Text style={styles.modalTitle}>P2 Marks: {selectedStudentForModal.fullName}</Text>}
-
-              {/* Event Picker inside the Modal */}
-              <View style={styles.pickerWrapperModal}>
-                <Picker
-                  selectedValue={selectedEventForP2Marks}
-                  onValueChange={(itemValue) => setSelectedEventForP2Marks(itemValue as string | null)}
-                  style={styles.pickerModal}
-                  enabled={!loadingStudentMarks} // Disable while saving/loading marks
-                >
-                  <Picker.Item label="Select Event for P2 Marks..." value={null} />
-                  {allEventsForModalPicker.map(event => (
-                    // Batch display removed from event label
-                    <Picker.Item key={event.id} label={`${event.eventName} (${event.gender})`} value={event.id} />
-                  ))}
-                </Picker>
-              </View>
-
-              {/* Marks input fields section */}
-              {loadingStudentMarks && selectedEventForP2Marks ? (
-                <ActivityIndicator size="large" color="#1565c0" style={{marginVertical: 20}}/>
-              ) : (
-                <>
-                  <Text style={styles.roundTitleModal}>Round 1</Text>
-                  {renderMarksFieldInModal('round1', 'D', 'D', !selectedEventForP2Marks)}
-                  {renderMarksFieldInModal('round1', 'E1', 'E1', !selectedEventForP2Marks)}
-                  {renderMarksFieldInModal('round1', 'E2', 'E2', !selectedEventForP2Marks)}
-                  {renderMarksFieldInModal('round1', 'E3', 'E3', !selectedEventForP2Marks)}
-                  {renderMarksFieldInModal('round1', 'E4', 'E4', !selectedEventForP2Marks)}
-                  {renderMarksFieldInModal('round1', 'P', 'P', !selectedEventForP2Marks)}
-
-                  <TouchableOpacity 
-                    style={[styles.addRoundButtonModal, !selectedEventForP2Marks && styles.disabledButtonOverlay]} 
-                    onPress={() => setShowRound2InModal(!showRound2InModal)}
-                    disabled={!selectedEventForP2Marks || loadingStudentMarks}
-                  >
-                    <MaterialIcons name={showRound2InModal ? "remove-circle-outline" : "add-circle-outline"} size={24} color="#1565c0" />
-                    <Text style={styles.addRoundTextModal}>{showRound2InModal ? "Remove Round 2" : "Add Round 2"}</Text>
-                  </TouchableOpacity>
-
-                  {showRound2InModal && selectedEventForP2Marks && ( // Also check selectedEventForP2Marks here for visibility
-                    <>
-                      <Text style={styles.roundTitleModal}>Round 2</Text>
-                      {renderMarksFieldInModal('round2', 'D', 'D', !selectedEventForP2Marks)}
-                      {renderMarksFieldInModal('round2', 'E1', 'E1', !selectedEventForP2Marks)}
-                      {renderMarksFieldInModal('round2', 'E2', 'E2', !selectedEventForP2Marks)}
-                      {renderMarksFieldInModal('round2', 'E3', 'E3', !selectedEventForP2Marks)}
-                      {renderMarksFieldInModal('round2', 'E4', 'E4', !selectedEventForP2Marks)}
-                      {renderMarksFieldInModal('round2', 'P', 'P', !selectedEventForP2Marks)}
-                    </>
-                  )}
-                  <View style={styles.modalActions}>
-                    <Button mode="outlined" onPress={() => setIsModalVisible(false)} style={{marginRight: 10}}>Cancel</Button>
-                    <Button
-                        mode="contained" // This button's disabled state is already handled
-                        onPress={handleSaveMarks}
-                        loading={loadingStudentMarks && !!selectedEventForP2Marks} // Show spinner on button when saving
-                        disabled={loadingStudentMarks || !selectedEventForP2Marks} // Disable if loading or no event selected
-                        buttonColor="#1565c0"
-                    >
-                      {existingMarkId ? "Update Marks" : "Save Marks"}
-                    </Button>
-                  </View>
-                  {!selectedEventForP2Marks && (
-                    <Text style={{textAlign: 'center', marginTop: 15, color: '#777'}}>Please select an event to enter marks.</Text>
-                  )}
-                </>
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      {/* The stable, memoized modal component is now used for mobile as well */}
+      <P2MarksModalComponent
+        visible={isModalVisible}
+        onClose={handleCloseModal}
+        student={selectedStudentForModal}
+        events={allEventsForModalPicker}
+        selectedEvent={selectedEventForP2Marks}
+        onEventChange={setSelectedEventForP2Marks}
+        marks={currentMarks}
+        onMarksChange={handleMarkChange}
+        showR2={showRound2InModal}
+        onShowR2Toggle={handleToggleRound2}
+        onSave={handleSaveMarks}
+        isSaving={savingOrLoadingMarks}
+        isWeb={isWeb}
+        existingMarkId={existingMarkId}
+        isLoadingMarks={savingOrLoadingMarks}
+      />
 
       <FeedbackModal
         visible={feedbackModalVisible}
@@ -1246,6 +1142,6 @@ const styles = StyleSheet.create({
   },
   supervisorInputField: {
     flex: 2,
-    backgroundColor: '#fff',
-  },
+ backgroundColor: '#fff',
+ },
 });

@@ -53,6 +53,99 @@ const provincesList = [
   "Sabaragamuwa",
 ];
 
+interface MarksModalProps {
+  visible: boolean;
+  onClose: () => void;
+  student: StudentDocument | null;
+  events: EventDocument[];
+  selectedEvent: string;
+  onEventChange: (value: string) => void;
+  marksR1: MarksEntry;
+  onMarksR1Change: React.Dispatch<React.SetStateAction<MarksEntry>>;
+  marksR2: MarksEntry;
+  onMarksR2Change: React.Dispatch<React.SetStateAction<MarksEntry>>;
+  showR2: boolean;
+  onShowR2Toggle: () => void;
+  onSave: () => void;
+  isSaving: boolean;
+  isWeb: boolean;
+  currentMarkId: string | null;
+}
+
+const MarksModalComponent: React.FC<MarksModalProps> = React.memo(({
+  visible, onClose, student, events, selectedEvent, onEventChange,
+  marksR1, onMarksR1Change, marksR2, onMarksR2Change, showR2, onShowR2Toggle,
+  onSave, isSaving, isWeb, currentMarkId
+}) => {
+
+  const renderMarksField = (
+    round: 'round1' | 'round2',
+    field: keyof MarksEntry,
+    label: string
+  ) => {
+    const value = (round === 'round1' ? marksR1[field] : marksR2[field]) || "";
+    const supField = `${field}_sup` as keyof MarksEntry;
+    const supValue = (round === 'round1' ? marksR1[supField] : marksR2[supField]) || "";
+    const setter = round === 'round1' ? onMarksR1Change : onMarksR2Change;
+    return (
+      <View style={styles.markRow}>
+        <Text style={styles.markLabel}>{label}</Text>
+        <TextInput label="Score" value={value} onChangeText={(text) => setter(prev => ({ ...prev, [field]: text }))} keyboardType="numeric" style={styles.markInputField} mode="outlined" dense disabled={isSaving} />
+        <TextInput label="Supervisor" value={supValue} onChangeText={(text) => setter(prev => ({ ...prev, [supField]: text }))} style={styles.supervisorInputField} mode="outlined" dense disabled={isSaving} />
+      </View>
+    );
+  };
+
+  const modalContent = (
+    <ScrollView keyboardShouldPersistTaps="handled">
+      <Text style={styles.modalTitle}>Add Marks for {student?.fullName}</Text>
+      <View style={styles.pickerWrapperModal}>
+        <Picker selectedValue={selectedEvent} onValueChange={onEventChange} style={styles.picker} enabled={!isSaving}>
+          <Picker.Item label="Select Event..." value="" />
+          {events.map(event => <Picker.Item key={event.id} label={event.eventName} value={event.id} />)}
+        </Picker>
+      </View>
+      <Text style={styles.roundTitle}>Round 1</Text>
+      {renderMarksField('round1', 'D', 'D')}
+      {renderMarksField('round1', 'E1', 'E1')}
+      {renderMarksField('round1', 'E2', 'E2')}
+      {renderMarksField('round1', 'E3', 'E3')}
+      {renderMarksField('round1', 'E4', 'E4')}
+      {renderMarksField('round1', 'P', 'P')}
+      <TouchableOpacity style={styles.addRoundButton} onPress={onShowR2Toggle} disabled={isSaving}>
+        <MaterialIcons name={showR2 ? "remove-circle-outline" : "add-circle-outline"} size={24} color="#1565c0" />
+        <Text style={styles.addRoundText}>{showR2 ? "Remove Round 2" : "Add Round 2"}</Text>
+      </TouchableOpacity>
+      {showR2 && (
+        <>
+          <Text style={styles.roundTitle}>Round 2</Text>
+          {renderMarksField('round2', 'D', 'D')}
+          {renderMarksField('round2', 'E1', 'E1')}
+          {renderMarksField('round2', 'E2', 'E2')}
+          {renderMarksField('round2', 'E3', 'E3')}
+          {renderMarksField('round2', 'E4', 'E4')}
+          {renderMarksField('round2', 'P', 'P')}
+        </>
+      )}
+      <View style={styles.modalActions}>
+        <Button onPress={onClose} mode="outlined" style={{marginRight: 10}} uppercase={false} contentStyle={{ paddingHorizontal: 4 }} labelStyle={{ fontSize: 14, marginHorizontal: 0, letterSpacing: 0 }} disabled={isSaving}>
+          Cancel
+        </Button>
+        <Button onPress={onSave} mode="contained" loading={isSaving} buttonColor="#1565c0" disabled={isSaving}>{currentMarkId ? 'Update Marks' : 'Save Marks'}</Button>
+      </View>
+    </ScrollView>
+  );
+
+  if (isWeb) {
+    if (!visible) return null;
+    return <View style={[styles.modalOverlay, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 }]}><View style={[styles.modalContent, { maxHeight: 600, width: 500 }]}>{modalContent}</View></View>;
+  }
+
+  return (
+    <Modal visible={visible} onRequestClose={onClose} transparent animationType="slide"><View style={styles.modalOverlay}><View style={[styles.modalContent, { flexGrow: 1 }]}>{modalContent}</View></View></Modal>
+  );
+});
+
 export default function AddMarksScreen({ navigation }: any) {
   const { auth } = useAuth();
   const idToken = auth?.idToken;
@@ -178,7 +271,7 @@ export default function AddMarksScreen({ navigation }: any) {
     }
   };
 
-  const handleSaveMarks = async () => {
+  const handleSaveMarks = useCallback(async () => {
     if (!selectedStudentForMarks || !selectedEventInModal ) {
       displayModal("Student or Event not selected.", "error", "Selection Error");
       return;
@@ -280,7 +373,17 @@ export default function AddMarksScreen({ navigation }: any) {
     } finally {
       setSavingMarks(false);
     }
-  };
+  }, [
+    selectedStudentForMarks, 
+    selectedEventInModal, 
+    idToken, 
+    auth, 
+    marksRound1, 
+    marksRound2, 
+    showRound2, 
+    currentMarkId, 
+    displayModal, 
+    allEvents]);
 
   // This function now just opens the modal. Fetching marks happens on event selection.
   const handleEditMarksClick = (student: StudentDocument) => {
@@ -291,39 +394,6 @@ export default function AddMarksScreen({ navigation }: any) {
     setShowRound2(false);
     setCurrentMarkId(null); // Will be set if marks are found for the selected event
     setIsModalVisible(true);
-  };
-
-  const renderMarksField = (
-    round: 'round1' | 'round2',
-    field: keyof MarksEntry,
-    label: string
-  ) => {
-    const value = (round === 'round1' ? marksRound1[field] : marksRound2[field]) || "";
-    const supField = `${field}_sup` as keyof MarksEntry;
-    const supValue = (round === 'round1' ? marksRound1[supField] : marksRound2[supField]) || "";
-    const setter = round === 'round1' ? setMarksRound1 : setMarksRound2;
-    return (
-      <View style={styles.markRow}>
-        <Text style={styles.markLabel}>{label}</Text>
-        <TextInput
-          label="Score"
-          value={value}
-          onChangeText={(text) => setter(prev => ({ ...prev, [field]: text }))}
-          keyboardType="numeric"
-          style={styles.markInputField}
-          mode="outlined"
-          dense
-        />
-        <TextInput
-          label="Supervisor"
-          value={supValue}
-          onChangeText={(text) => setter(prev => ({ ...prev, [supField]: text }))}
-          style={styles.supervisorInputField}
-          mode="outlined"
-          dense
-        />
-      </View>
-    );
   };
 
   useEffect(() => {
@@ -410,103 +480,13 @@ export default function AddMarksScreen({ navigation }: any) {
     setSearched(false); // Reset search state
   };
 
-  // Platform-specific modal: use native Modal for mobile, custom overlay for web
-  const MarksModal = () => {
-    if (isWeb) {
-      // Web: custom overlay
-      if (!isModalVisible) return null;
-      return (
-        <View style={[styles.modalOverlay, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 }]}> 
-          <View style={[styles.modalContent, { maxHeight: 600, width: 500 }]}> 
-            <ScrollView>
-              <Text style={styles.modalTitle}>Add Marks for {selectedStudentForMarks?.fullName}</Text>
-              <View style={styles.pickerWrapperModal}>
-                <Picker selectedValue={selectedEventInModal} onValueChange={setSelectedEventInModal} style={styles.picker}>
-                  <Picker.Item label="Select Event..." value="" />
-                  {allEvents.map(event => <Picker.Item key={event.id} label={event.eventName} value={event.id} />)}
-                </Picker>
-              </View>
-              <Text style={styles.roundTitle}>Round 1</Text>
-              {renderMarksField('round1', 'D', 'D')}
-              {renderMarksField('round1', 'E1', 'E1')}
-              {renderMarksField('round1', 'E2', 'E2')}
-              {renderMarksField('round1', 'E3', 'E3')}
-              {renderMarksField('round1', 'E4', 'E4')}
-              {renderMarksField('round1', 'P', 'P')}
-              <TouchableOpacity style={styles.addRoundButton} onPress={() => setShowRound2(!showRound2)}>
-                <MaterialIcons name={showRound2 ? "remove-circle-outline" : "add-circle-outline"} size={24} color="#1565c0" />
-                <Text style={styles.addRoundText}>{showRound2 ? "Remove Round 2" : "Add Round 2"}</Text>
-              </TouchableOpacity>
-              {showRound2 && (
-                <>
-                  <Text style={styles.roundTitle}>Round 2</Text>
-                  {renderMarksField('round2', 'D', 'D')}
-                  {renderMarksField('round2', 'E1', 'E1')}
-                  {renderMarksField('round2', 'E2', 'E2')}
-                  {renderMarksField('round2', 'E3', 'E3')}
-                  {renderMarksField('round2', 'E4', 'E4')}
-                  {renderMarksField('round2', 'P', 'P')}
-                </>
-              )}
-              <View style={styles.modalActions}>
-                <Button onPress={() => setIsModalVisible(false)} mode="outlined" style={{marginRight: 10}} uppercase={false} contentStyle={{ paddingHorizontal: 4 }} labelStyle={{ fontSize: 14, marginHorizontal: 0, letterSpacing: 0 }}>
-                  Cancel
-                </Button>
-                <Button onPress={handleSaveMarks} mode="contained" loading={savingMarks} buttonColor="#1565c0">Save Marks</Button>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      );
-    } else {
-      // Mobile: native Modal
-      return (
-        <Modal visible={isModalVisible} onRequestClose={() => setIsModalVisible(false)} transparent animationType="slide">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <ScrollView>
-                <Text style={styles.modalTitle}>Add Marks for {selectedStudentForMarks?.fullName}</Text>
-                <View style={styles.pickerWrapperModal}>
-                  <Picker selectedValue={selectedEventInModal} onValueChange={setSelectedEventInModal} style={styles.picker}>
-                    <Picker.Item label="Select Event..." value="" />
-                    {allEvents.map(event => <Picker.Item key={event.id} label={event.eventName} value={event.id} />)}
-                  </Picker>
-                </View>
-                <Text style={styles.roundTitle}>Round 1</Text>
-                {renderMarksField('round1', 'D', 'D')}
-                {renderMarksField('round1', 'E1', 'E1')}
-                {renderMarksField('round1', 'E2', 'E2')}
-                {renderMarksField('round1', 'E3', 'E3')}
-                {renderMarksField('round1', 'E4', 'E4')}
-                {renderMarksField('round1', 'P', 'P')}
-                <TouchableOpacity style={styles.addRoundButton} onPress={() => setShowRound2(!showRound2)}>
-                  <MaterialIcons name={showRound2 ? "remove-circle-outline" : "add-circle-outline"} size={24} color="#1565c0" />
-                  <Text style={styles.addRoundText}>{showRound2 ? "Remove Round 2" : "Add Round 2"}</Text>
-                </TouchableOpacity>
-                {showRound2 && (
-                  <>
-                    <Text style={styles.roundTitle}>Round 2</Text>
-                    {renderMarksField('round2', 'D', 'D')}
-                    {renderMarksField('round2', 'E1', 'E1')}
-                    {renderMarksField('round2', 'E2', 'E2')}
-                    {renderMarksField('round2', 'E3', 'E3')}
-                    {renderMarksField('round2', 'E4', 'E4')}
-                    {renderMarksField('round2', 'P', 'P')}
-                  </>
-                )}
-                <View style={styles.modalActions}>
-                  <Button onPress={() => setIsModalVisible(false)} mode="outlined" style={{marginRight: 10}} uppercase={false} contentStyle={{ paddingHorizontal: 4 }} labelStyle={{ fontSize: 14, marginHorizontal: 0, letterSpacing: 0 }}>
-                    Cancel
-                  </Button>
-                  <Button onPress={handleSaveMarks} mode="contained" loading={savingMarks} buttonColor="#1565c0">Save Marks</Button>
-                </View>
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-      );
-    }
-  };
+  const handleCloseModal = useCallback(() => {
+    setIsModalVisible(false);
+  }, []);
+
+  const handleToggleRound2 = useCallback(() => {
+    setShowRound2(prev => !prev);
+  }, []);
 
   const TopBarContent = () => (
     <View style={styles.topBarInternal}>
@@ -665,7 +645,21 @@ export default function AddMarksScreen({ navigation }: any) {
           {renderContent()}
         </ScrollView>
         {/* Only render the custom web modal here */}
-        <MarksModal />
+        <MarksModalComponent
+          isWeb={isWeb}
+          visible={isModalVisible}
+          onClose={handleCloseModal}
+          student={selectedStudentForMarks}
+          events={allEvents}
+          selectedEvent={selectedEventInModal}
+          onEventChange={setSelectedEventInModal}
+          marksR1={marksRound1} onMarksR1Change={setMarksRound1}
+          marksR2={marksRound2} onMarksR2Change={setMarksRound2}
+          showR2={showRound2} onShowR2Toggle={handleToggleRound2}
+          onSave={handleSaveMarks}
+          isSaving={savingMarks}
+          currentMarkId={currentMarkId}
+        />
         <FeedbackModal visible={feedbackModalVisible} message={feedbackModalMsg} type={feedbackModalType as FeedbackModalType} title={feedbackModalTitle} onClose={hideFeedbackModal} />
       </View>
     );
@@ -678,7 +672,21 @@ export default function AddMarksScreen({ navigation }: any) {
       <View style={styles.mainContentContainer}>
         {renderContent()}
       </View>
-      <MarksModal />
+      <MarksModalComponent
+        isWeb={isWeb}
+        visible={isModalVisible}
+        onClose={handleCloseModal}
+        student={selectedStudentForMarks}
+        events={allEvents}
+        selectedEvent={selectedEventInModal}
+        onEventChange={setSelectedEventInModal}
+        marksR1={marksRound1} onMarksR1Change={setMarksRound1}
+        marksR2={marksRound2} onMarksR2Change={setMarksRound2}
+        showR2={showRound2} onShowR2Toggle={handleToggleRound2}
+        onSave={handleSaveMarks}
+        isSaving={savingMarks}
+        currentMarkId={currentMarkId}
+      />
       <FeedbackModal
         visible={feedbackModalVisible}
         message={feedbackModalMsg}
@@ -842,8 +850,6 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 15, textAlign: "center", color: "#1565c0" },
   roundTitle: { fontSize: 16, fontWeight: "600", marginTop: 10, marginBottom: 5, color: "#333" },
-  
-  // Styles for marks entry
   markRow: {
     flexDirection: 'row',
     alignItems: 'center',

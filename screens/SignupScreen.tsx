@@ -1,4 +1,4 @@
-import { FeedbackModal } from "@/components/FeedbackModal";
+import { FeedbackModal } from "@/components/FeedbackModal"; // Import the FeedbackModal component
 import { ShowModalOptions, useFeedbackModal } from "@/hooks/useFeedbackModal";
 import { useResponsive } from "@/hooks/useResponsive";
 import { useAuth } from "@/utils/AuthContext"; // Import useAuth

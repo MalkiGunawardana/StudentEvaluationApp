@@ -12,6 +12,7 @@
     "newArchEnabled": false,
     "ios": {
       "supportsTablet": true
+      , "softwareKeyboardLayoutMode": "pan"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +20,8 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.malkigunawardana.studentevaluationapp"
+      "package": "com.malkigunawardana.studentevaluationapp",
+      "softwareKeyboardLayoutMode": "pan"
     },
     "web": {
       "bundler": "metro",
